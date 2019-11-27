@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% load bootstrap4 %}
+{% load user_token %}
+
+{% block title %}Weather Dashboard{% endblock title %}
+
+{% block content %}
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <h1>Weathers</h1>
+            <ul id="cityList">
+                {% for city in weather_data %}
+                    <li>{{city}}: <span id="city-{{city.pk}}">{{city.temperature}}</span></li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="col-md-4">
+            <h2>Subscribe</h2>
+            <form action="" method="post">
+                {% csrf_token %}
+                {% bootstrap_form form %}
+                {% bootstrap_button "Subscribe" button_type="submit" button_class="btn btn-primary" %}
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block extrascript %}
+    <script>
+    var updateSocket = new WebSocket('ws://localhost:8008/ws/update/');
+    updateSocket.onmessage = function(event) {
+        console.log(event.data);
+        var data = JSON.parse(event.data);
+        if (data.type !== 'weather.update') {
+            return;
+        }
+        var el = document.getElementById(`city-${data.city}`);
+        el.innerHTML = data.temperature;
+    }
+    </script>
+    <script>
+    var cities = document.getElementById('cityList');
+    cities = cities.querySelectorAll('span[id^=city-]');
+    cities = [...cities].map(e => e.id);
+
+    function onchallenge (session, method, extra) {
+        if (method === 'ticket') {
+            return '123'
+        }
+    }
+    
+    var connection = new autobahn.Connection({
+        url: 'ws://127.0.0.1:8080/ws', 
+        realm: 'realm1',
+        // the following attributes must be set for Ticket-based authentication
+        //
+        {% comment %} authmethods: ["anonymous"], {% endcomment %}
+        authid: "{{user.pk}}",
+        authextra: {user: "{{user.pk}}", "token": "{% user_token user %}"}
+        {% comment %} onchallenge: onchallenge {% endcomment %}
+    });
+    connection.onopen = function (session) {        // 1) subscribe to a topic
+        function onevent(args, kwargs, event) {
+            console.log("Event:", kwargs);
+            var data = kwargs;
+            
+            if (data.type !== 'weather.update') {
+                return;
+            }
+            var el = document.getElementById(`city-${data.city}`);
+            el.innerHTML = data.temperature;
+        }
+        cities.forEach(el => {
+            session.subscribe(`com.weather.${el}`, onevent);
+        })
+    }
+    connection.open()
+    </script>
+{% endblock extrascript %}
